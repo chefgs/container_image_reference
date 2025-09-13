@@ -162,3 +162,117 @@ logs
      ```
 
 These Dockerfiles are optimized for production use with a focus on security, performance, and minimal image size.
+
+---
+
+Comprehensive Dockerfile for Angular UI and Node.js Backend scenario.
+
+# Dockerfile for Angular UI and Node.js Backend
+
+Here's a production-ready Dockerfile that handles both Angular UI build and Node.js backend:
+
+```dockerfile
+# Base stage for shared dependencies
+FROM node:18-alpine AS base
+RUN npm install -g pnpm
+WORKDIR /app
+
+# Frontend (Angular) build stage
+FROM base AS frontend-builder
+WORKDIR /app/frontend
+
+# Copy frontend package files
+COPY frontend/package.json frontend/pnpm-lock.yaml* ./
+RUN pnpm install --frozen-lockfile
+
+# Copy frontend source code and build
+COPY frontend/ ./
+RUN pnpm run build --prod
+
+# Backend dependencies stage
+FROM base AS backend-deps
+WORKDIR /app/backend
+
+# Copy backend package files
+COPY backend/package.json backend/pnpm-lock.yaml* ./
+RUN pnpm install --frozen-lockfile
+
+# Backend build stage
+FROM base AS backend-builder
+WORKDIR /app/backend
+
+# Copy backend dependencies
+COPY --from=backend-deps /app/backend/node_modules ./node_modules
+
+# Copy backend source code and build
+COPY backend/ ./
+RUN pnpm run build
+
+# Production stage
+FROM node:18-alpine AS production
+WORKDIR /app
+
+# Set production environment
+ENV NODE_ENV production
+
+# Create non-root user for security
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 appuser
+
+# Copy backend built artifacts and dependencies
+COPY --from=backend-builder /app/backend/dist ./dist
+COPY --from=backend-builder /app/backend/package.json ./
+COPY --from=backend-deps /app/backend/node_modules ./node_modules
+
+# Remove development dependencies to reduce image size
+RUN pnpm prune --prod
+
+# Copy frontend built artifacts to be served by backend
+COPY --from=frontend-builder /app/frontend/dist/angular-app ./public
+
+# Create appropriate directories with proper permissions
+RUN mkdir -p /app/logs
+RUN chown -R appuser:nodejs /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose the port the app will run on
+EXPOSE 3000
+
+# Start the application
+CMD ["node", "dist/main.js"]
+```
+
+## Key Features of this Dockerfile:
+
+1. **Multi-stage build** to keep the final image small
+2. **Separated frontend and backend builds** for better caching and modularity
+3. **pnpm** for efficient dependency management
+4. **Production optimization** with pruning of dev dependencies
+5. **Security best practices** with non-root user
+6. **Properly structured** to serve Angular frontend from Node.js backend
+
+## Important Considerations:
+
+1. **Directory Structure Assumption**:
+   - Frontend code in `/frontend` directory
+   - Backend code in `/backend` directory
+
+2. **Build Scripts**:
+   - Assumes Angular build outputs to `dist/angular-app`
+   - Assumes Node.js build outputs to `dist/main.js`
+
+3. **Configuration**:
+   - You may need to adjust paths based on your project structure
+   - Environment variables should be configured in your deployment system
+
+4. **File Serving**:
+   - Assumes backend serves static files from public directory
+
+5. **Docker Build Command**:
+   ```bash
+   docker build -t myapp:production .
+   ```
+
+You may need to adjust paths and commands based on your specific Angular and Node.js application structure.
